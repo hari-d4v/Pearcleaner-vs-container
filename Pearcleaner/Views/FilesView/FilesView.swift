@@ -276,9 +276,18 @@ struct FilesView: View {
                     // Trash selected leftovers and any exact app sandbox containers discovered above.
                     let deletionSucceeded = moveFilesToTrash(appState: appState, at: deletionTargets)
 
-                    // On a full uninstall, run the same preferences-reset commands that fixed
-                    // Mouse Glide: defaults delete <bundleID>, then refresh cfprefsd.
-                    if fullUninstallRequested && (deletionSucceeded || appIsInTrash) {
+                    // On a full uninstall, always run the preferences-reset commands after
+                    // the delete attempt, even if one file operation reports a partial failure.
+                    // This mirrors the recovery sequence that restored Mouse Glide's tutorial.
+                    if fullUninstallRequested {
+                        if !deletionSucceeded {
+                            Task { @MainActor in
+                                GlobalConsoleManager.shared.appendOutput(
+                                    "File removal reported a partial failure; still resetting the preferences domain for \(appInfoForDeletion.appName).\n",
+                                    source: CurrentPage.applications.title
+                                )
+                            }
+                        }
                         _ = resetAppPreferencesDomain(bundleIdentifier: appInfoForDeletion.bundleIdentifier)
                     }
 
