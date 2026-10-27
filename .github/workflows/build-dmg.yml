@@ -67,7 +67,7 @@ jobs:
           VERSION=$(/usr/libexec/PlistBuddy \
             -c 'Print :CFBundleShortVersionString' \
             "$APP/Contents/Info.plist" 2>/dev/null || echo "5.4.3")
-          DMG="Pearcleaner-Reset-App-State-\${VERSION}-experimental.dmg"
+          DMG="Pearcleaner-Reset-App-State-${VERSION}-experimental.dmg"
 
           hdiutil create \
             -volname "Pearcleaner Reset App State" \
