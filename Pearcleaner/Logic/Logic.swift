@@ -470,6 +470,98 @@ func showAppInFiles(
     }
 }
 
+/// Finds this app's user-level sandbox containers for the final uninstall pass.
+/// It only returns exact bundle-ID matches and never searches or removes Group Containers.
+func appContainerCleanupTargets(bundleIdentifier: String) -> [URL] {
+    guard !bundleIdentifier.isEmpty, !bundleIdentifier.contains("/") else { return [] }
+
+    let fileManager = FileManager.default
+    let library = fileManager.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library", isDirectory: true)
+    let containersDirectory = library.appendingPathComponent("Containers", isDirectory: true)
+    var candidates: [URL] = [
+        containersDirectory.appendingPathComponent(bundleIdentifier, isDirectory: true)
+    ]
+
+    // Some macOS app containers use UUID directory names with the app bundle ID recorded
+    // in Apple's container metadata. Match that metadata exactly.
+    if let directories = try? fileManager.contentsOfDirectory(
+        at: containersDirectory,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+    ) {
+        for directory in directories where directory.lastPathComponent != bundleIdentifier {
+            let metadataURL = directory.appendingPathComponent(".com.apple.containermanagerd.metadata.plist")
+            guard
+                let metadata = NSDictionary(contentsOf: metadataURL),
+                let identifier = metadata["MCMMetadataIdentifier"] as? String,
+                identifier == bundleIdentifier
+            else {
+                continue
+            }
+            candidates.append(directory)
+        }
+    }
+
+    var seen = Set<String>()
+    return candidates
+        .filter { fileManager.fileExists(atPath: $0.path) }
+        .map { $0.standardizedFileURL }
+        .filter { seen.insert($0.path).inserted }
+        .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+}
+
+/// Performs the same user-preference reset used in the manual recovery steps:
+/// defaults delete <bundleID>, followed by killall cfprefsd.
+/// Argument arrays are used rather than a shell command, so bundle IDs are not shell-interpreted.
+@discardableResult
+func resetAppPreferencesDomain(bundleIdentifier: String) -> Bool {
+    guard !bundleIdentifier.isEmpty, !bundleIdentifier.contains("/") else {
+        GlobalConsoleManager.shared.appendOutput("Skipped preferences reset: invalid bundle identifier.\n", source: CurrentPage.applications.title)
+        return false
+    }
+
+    var resetSucceeded = false
+    let defaultsProcess = Process()
+    defaultsProcess.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+    defaultsProcess.arguments = ["delete", bundleIdentifier]
+
+    do {
+        try defaultsProcess.run()
+        defaultsProcess.waitUntilExit()
+        resetSucceeded = defaultsProcess.terminationStatus == 0
+    } catch {
+        GlobalConsoleManager.shared.appendOutput("Could not run defaults delete for \(bundleIdentifier): \(error.localizedDescription)\n", source: CurrentPage.applications.title)
+    }
+
+    // Fall back to Foundation's preferences API if defaults had no domain to delete
+    // or could not remove it. This is idempotent and targets only the requested domain.
+    if !resetSucceeded {
+        UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
+        CFPreferencesAppSynchronize(bundleIdentifier as CFString)
+        resetSucceeded = true
+    }
+
+    let killallProcess = Process()
+    killallProcess.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
+    killallProcess.arguments = ["cfprefsd"]
+    do {
+        try killallProcess.run()
+        killallProcess.waitUntilExit()
+        GlobalConsoleManager.shared.appendOutput(
+            "Reset preferences for \(bundleIdentifier); cfprefsd refresh exit status: \(killallProcess.terminationStatus).\n",
+            source: CurrentPage.applications.title
+        )
+    } catch {
+        GlobalConsoleManager.shared.appendOutput(
+            "Reset preferences for \(bundleIdentifier), but could not restart cfprefsd: \(error.localizedDescription)\n",
+            source: CurrentPage.applications.title
+        )
+    }
+
+    return resetSucceeded
+}
+
 // Move files to trash using Authorization Services so it asks for user password if needed
 func moveFilesToTrash(appState: AppState, at fileURLs: [URL]) -> Bool {
 
