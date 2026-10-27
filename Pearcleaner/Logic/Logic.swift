@@ -7,6 +7,7 @@
 
 import AlinFoundation
 import Foundation
+import CoreFoundation
 import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
