@@ -38,29 +38,29 @@ jobs:
           set -o pipefail
           xcodebuild  -project Pearcleaner.xcodeproj  -scheme "Pearcleaner Release"  -configuration Release  -destination 'platform=macOS'  -derivedDataPath "$RUNNER_TEMP/PearcleanerDerivedData"  ARCHS=arm64  ONLY_ACTIVE_ARCH=YES  CODE_SIGN_IDENTITY=-  CODE_SIGNING_REQUIRED=YES  CODE_SIGNING_ALLOWED=YES  DEVELOPMENT_TEAM=  build | tee "$RUNNER_TEMP/xcodebuild.log"
 
-      - name: Align Sparkle signature with experimental app signature
+      - name: Allow the experimental ad-hoc app to load Sparkle
         run: |
           set -euo pipefail
           APP="$RUNNER_TEMP/PearcleanerDerivedData/Build/Products/Release/Pearcleaner.app"
-          SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+          ENTITLEMENTS="$RUNNER_TEMP/Pearcleaner-experimental.entitlements.plist"
           test -d "$APP"
-          test -d "$SPARKLE"
 
-          # The main app is ad-hoc signed in CI, while the prebuilt Sparkle
-          # package arrives signed by its publisher. macOS library validation
-          # rejects that Team ID mismatch when SIP is enabled. Re-sign Sparkle
-          # and its nested helpers with the same ad-hoc identity as the app.
-          codesign --force --deep --sign - --preserve-metadata=entitlements,flags,runtime "$SPARKLE"
+          # The CI build has no Developer ID certificate. The experimental app
+          # is ad-hoc signed, so library validation rejects Sparkle's different
+          # Team ID on launch. Apply this exception to this build only and keep
+          # the app-group entitlement already embedded by Xcode.
+          codesign -d --entitlements :- "$APP" > "$ENTITLEMENTS" 2>/dev/null
+          plutil -lint "$ENTITLEMENTS"
+          /usr/libexec/PlistBuddy -c "Set :com.apple.security.cs.disable-library-validation true" "$ENTITLEMENTS" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$ENTITLEMENTS"
 
-          # Re-seal the outer app after changing the embedded framework.
-          codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$APP"
+          # Keep hardened runtime enabled. Do not deep-sign Sparkle's XPC
+          # tools, as those may require distinct entitlements.
+          codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
 
-          APP_TEAM="$(codesign -dv --verbose=4 "$APP" 2>&1 | awk -F= '$1 == "TeamIdentifier" { print $2 }')"
-          SPARKLE_TEAM="$(codesign -dv --verbose=4 "$SPARKLE" 2>&1 | awk -F= '$1 == "TeamIdentifier" { print $2 }')"
-          printf 'App Team ID: %s\\nSparkle Team ID: %s\\n' "$APP_TEAM" "$SPARKLE_TEAM"
-          test -n "$APP_TEAM"
-          test "$APP_TEAM" = "$SPARKLE_TEAM"
+          # Fail unless the final signature contains both required entitlements.
+          codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -extract com.apple.security.cs.disable-library-validation raw - | grep -qx true
+          codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -extract com.apple.security.application-groups.0 raw - | grep -qx "group.com.alienator88.Pearcleaner"
 
       - name: Prepare DMG
         id: package
@@ -106,8 +106,8 @@ jobs:
             This DMG includes the Delete-workflow container cleanup fix and bundle-ID-named container detection.
 
             - Built by GitHub Actions from commit ${{ github.sha }}.
-            - Ad-hoc signed, not Developer ID signed or notarized.
-            - The CI build re-signs Sparkle and its nested code ad-hoc to match the app's signature, avoiding the Team ID mismatch seen with SIP enabled.
+            - Ad-hoc signed, not Developer ID signed or notarized; this is not suitable as a production distribution build.
+            - This CI-only ad-hoc build adds com.apple.security.cs.disable-library-validation because Pearcleaner has no Developer ID signature matching Sparkle's Team ID. Hardened runtime remains enabled, but library validation is relaxed for this experimental build.
             - macOS may still warn or block opening it because it is not notarized.
             - Not a stable or official Pearcleaner release. Use a test account and back up data before testing reset operations.
             - SHA-256 checksum is attached alongside the DMG.
