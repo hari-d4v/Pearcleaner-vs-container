@@ -142,9 +142,12 @@ class AppPathFinder {
     // Get all container URLs
     private func getAllContainers(bundleURL: URL) -> [URL] {
         var containers: [URL] = []
-        let bundleIdentifier = Bundle(url: bundleURL)?.bundleIdentifier
+        // Bundle(url:) can return nil for some App Store or recently moved app bundles;
+        // AppInfo already contains the metadata-derived bundle identifier in that case.
+        let containerBundleIdentifier = Bundle(url: bundleURL)?.bundleIdentifier
+            ?? self.appInfo.bundleIdentifier
 
-        guard let containerBundleIdentifier = bundleIdentifier else {
+        guard !containerBundleIdentifier.isEmpty else {
             return containers
         }
 
