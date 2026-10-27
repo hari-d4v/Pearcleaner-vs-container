@@ -59,8 +59,10 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
 
           # Fail unless the final signature contains both required entitlements.
-          codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -extract com.apple.security.cs.disable-library-validation raw - | grep -qx true
-          codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -extract com.apple.security.application-groups.0 raw - | grep -qx "group.com.alienator88.Pearcleaner"
+          SIGNED_ENTITLEMENTS="$RUNNER_TEMP/Pearcleaner-signed.entitlements.plist"
+          codesign -d --entitlements :- "$APP" > "$SIGNED_ENTITLEMENTS" 2>/dev/null
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.cs.disable-library-validation' "$SIGNED_ENTITLEMENTS")" = "true"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$SIGNED_ENTITLEMENTS")" = "group.com.alienator88.Pearcleaner"
 
       - name: Prepare DMG
         id: package
