@@ -518,7 +518,9 @@ func appContainerCleanupTargets(bundleIdentifier: String) -> [URL] {
 @discardableResult
 func resetAppPreferencesDomain(bundleIdentifier: String) -> Bool {
     guard !bundleIdentifier.isEmpty, !bundleIdentifier.contains("/") else {
-        GlobalConsoleManager.shared.appendOutput("Skipped preferences reset: invalid bundle identifier.\n", source: CurrentPage.applications.title)
+        Task { @MainActor in
+            GlobalConsoleManager.shared.appendOutput("Skipped preferences reset: invalid bundle identifier.\n", source: CurrentPage.applications.title)
+        }
         return false
     }
 
@@ -532,7 +534,10 @@ func resetAppPreferencesDomain(bundleIdentifier: String) -> Bool {
         defaultsProcess.waitUntilExit()
         resetSucceeded = defaultsProcess.terminationStatus == 0
     } catch {
-        GlobalConsoleManager.shared.appendOutput("Could not run defaults delete for \(bundleIdentifier): \(error.localizedDescription)\n", source: CurrentPage.applications.title)
+        let message = "Could not run defaults delete for \(bundleIdentifier): \(error.localizedDescription)\n"
+        Task { @MainActor in
+            GlobalConsoleManager.shared.appendOutput(message, source: CurrentPage.applications.title)
+        }
     }
 
     // Fall back to Foundation's preferences API if defaults had no domain to delete
@@ -549,15 +554,18 @@ func resetAppPreferencesDomain(bundleIdentifier: String) -> Bool {
     do {
         try killallProcess.run()
         killallProcess.waitUntilExit()
-        GlobalConsoleManager.shared.appendOutput(
-            "Reset preferences for \(bundleIdentifier); cfprefsd refresh exit status: \(killallProcess.terminationStatus).\n",
-            source: CurrentPage.applications.title
-        )
+        let status = killallProcess.terminationStatus
+        Task { @MainActor in
+            GlobalConsoleManager.shared.appendOutput(
+                "Reset preferences for \(bundleIdentifier); cfprefsd refresh exit status: \(status).\n",
+                source: CurrentPage.applications.title
+            )
+        }
     } catch {
-        GlobalConsoleManager.shared.appendOutput(
-            "Reset preferences for \(bundleIdentifier), but could not restart cfprefsd: \(error.localizedDescription)\n",
-            source: CurrentPage.applications.title
-        )
+        let message = "Reset preferences for \(bundleIdentifier), but could not restart cfprefsd: \(error.localizedDescription)\n"
+        Task { @MainActor in
+            GlobalConsoleManager.shared.appendOutput(message, source: CurrentPage.applications.title)
+        }
     }
 
     return resetSucceeded
