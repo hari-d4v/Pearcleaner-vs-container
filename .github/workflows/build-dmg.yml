@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: experimental-dmg-\${{ github.ref }}
+  group: experimental-dmg-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -90,9 +90,9 @@ jobs:
       - name: Publish experimental prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: reset-state-preview-\${{ github.run_number }}
-          target_commitish: \${{ github.sha }}
-          name: "Pearcleaner Reset App State — Experimental \${{ github.run_number }}"
+          tag_name: reset-state-preview-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: "Pearcleaner Reset App State — Experimental ${{ github.run_number }}"
           prerelease: true
           make_latest: false
           fail_on_unmatched_files: true
@@ -101,7 +101,7 @@ jobs:
 
             This DMG includes the Reset App State context-menu action and bundle-ID-named sandbox-container detection.
 
-            - Built by GitHub Actions from commit \${{ github.sha }}.
+            - Built by GitHub Actions from commit ${{ github.sha }}.
             - Ad-hoc signed, not Developer ID signed or notarized.
             - macOS may warn or block opening it. Do not bypass Gatekeeper unless you understand the risks.
             - Not a stable or official Pearcleaner release. Use a test account and back up data before testing reset operations.
