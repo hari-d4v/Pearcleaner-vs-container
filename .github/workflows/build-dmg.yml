@@ -31,27 +31,51 @@ jobs:
 
       - name: Resolve Swift packages
         run: |
-          xcodebuild \
-            -resolvePackageDependencies \
-            -project Pearcleaner.xcodeproj \
+          xcodebuild \\
+            -resolvePackageDependencies \\
+            -project Pearcleaner.xcodeproj \\
             -scheme "Pearcleaner Release"
 
       - name: Build Pearcleaner
         run: |
           set -o pipefail
-          xcodebuild \
-            -project Pearcleaner.xcodeproj \
-            -scheme "Pearcleaner Release" \
-            -configuration Release \
-            -destination 'platform=macOS' \
-            -derivedDataPath "$RUNNER_TEMP/PearcleanerDerivedData" \
-            ARCHS=arm64 \
-            ONLY_ACTIVE_ARCH=YES \
-            CODE_SIGN_IDENTITY=- \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES \
-            DEVELOPMENT_TEAM= \
+          xcodebuild \\
+            -project Pearcleaner.xcodeproj \\
+            -scheme "Pearcleaner Release" \\
+            -configuration Release \\
+            -destination 'platform=macOS' \\
+            -derivedDataPath "$RUNNER_TEMP/PearcleanerDerivedData" \\
+            ARCHS=arm64 \\
+            ONLY_ACTIVE_ARCH=YES \\
+            CODE_SIGN_IDENTITY=- \\
+            CODE_SIGNING_REQUIRED=YES \\
+            CODE_SIGNING_ALLOWED=YES \\
+            DEVELOPMENT_TEAM= \\
             build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Align Sparkle signature with experimental app signature
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/PearcleanerDerivedData/Build/Products/Release/Pearcleaner.app"
+          SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+          test -d "$APP"
+          test -d "$SPARKLE"
+
+          # The main app is ad-hoc signed in CI, while the prebuilt Sparkle
+          # package arrives signed by its publisher. macOS library validation
+          # rejects that Team ID mismatch when SIP is enabled. Re-sign Sparkle
+          # and its nested helpers with the same ad-hoc identity as the app.
+          codesign --force --deep --sign - --preserve-metadata=entitlements,flags,runtime "$SPARKLE"
+
+          # Re-seal the outer app after changing the embedded framework.
+          codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          APP_TEAM="$(codesign -dv --verbose=4 "$APP" 2>&1 | awk -F= '$1 == "TeamIdentifier" { print $2 }')"
+          SPARKLE_TEAM="$(codesign -dv --verbose=4 "$SPARKLE" 2>&1 | awk -F= '$1 == "TeamIdentifier" { print $2 }')"
+          printf 'App Team ID: %s\\nSparkle Team ID: %s\\n' "$APP_TEAM" "$SPARKLE_TEAM"
+          test -n "$APP_TEAM"
+          test "$APP_TEAM" = "$SPARKLE_TEAM"
 
       - name: Prepare DMG
         id: package
@@ -64,16 +88,16 @@ jobs:
           ditto "$APP" "dist/mount/Pearcleaner.app"
           ln -s /Applications "dist/mount/Applications"
 
-          VERSION=$(/usr/libexec/PlistBuddy \
-            -c 'Print :CFBundleShortVersionString' \
+          VERSION=$(/usr/libexec/PlistBuddy \\
+            -c 'Print :CFBundleShortVersionString' \\
             "$APP/Contents/Info.plist" 2>/dev/null || echo "5.4.3")
           DMG="Pearcleaner-Reset-App-State-${VERSION}-experimental.dmg"
 
-          hdiutil create \
-            -volname "Pearcleaner Reset App State" \
-            -srcfolder dist/mount \
-            -ov \
-            -format UDZO \
+          hdiutil create \\
+            -volname "Pearcleaner Reset App State" \\
+            -srcfolder dist/mount \\
+            -ov \\
+            -format UDZO \\
             "dist/$DMG"
 
           shasum -a 256 "dist/$DMG" | tee "dist/$DMG.sha256"
@@ -101,11 +125,12 @@ jobs:
           body: |
             **Experimental, unnotarized build of the feat/reset-app-state branch.**
 
-            This DMG includes the Reset App State context-menu action and bundle-ID-named sandbox-container detection.
+            This DMG includes the Delete-workflow container cleanup fix and bundle-ID-named container detection.
 
             - Built by GitHub Actions from commit ${{ github.sha }}.
             - Ad-hoc signed, not Developer ID signed or notarized.
-            - macOS may warn or block opening it. Do not bypass Gatekeeper unless you understand the risks.
+            - The CI build re-signs Sparkle and its nested code ad-hoc to match the app's signature, avoiding the Team ID mismatch seen with SIP enabled.
+            - macOS may still warn or block opening it because it is not notarized.
             - Not a stable or official Pearcleaner release. Use a test account and back up data before testing reset operations.
             - SHA-256 checksum is attached alongside the DMG.
           files: |
