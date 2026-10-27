@@ -1,0 +1,111 @@
+name: Build experimental Pearcleaner DMG
+
+on:
+  push:
+    branches:
+      - feat/reset-app-state
+    paths:
+      - ".github/workflows/build-dmg.yml"
+      - "Pearcleaner/**"
+      - "Pearcleaner.xcodeproj/**"
+      - "FinderOpen/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: experimental-dmg-\${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build app and publish experimental DMG
+    runs-on: macos-15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project Pearcleaner.xcodeproj \
+            -scheme "Pearcleaner Release"
+
+      - name: Build Pearcleaner
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Pearcleaner.xcodeproj \
+            -scheme "Pearcleaner Release" \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/PearcleanerDerivedData" \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM= \
+            build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Prepare DMG
+        id: package
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/PearcleanerDerivedData/Build/Products/Release/Pearcleaner.app"
+          test -d "$APP"
+
+          mkdir -p dist/mount
+          ditto "$APP" "dist/mount/Pearcleaner.app"
+          ln -s /Applications "dist/mount/Applications"
+
+          VERSION=$(/usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleShortVersionString' \
+            "$APP/Contents/Info.plist" 2>/dev/null || echo "5.4.3")
+          DMG="Pearcleaner-Reset-App-State-\${VERSION}-experimental.dmg"
+
+          hdiutil create \
+            -volname "Pearcleaner Reset App State" \
+            -srcfolder dist/mount \
+            -ov \
+            -format UDZO \
+            "dist/$DMG"
+
+          shasum -a 256 "dist/$DMG" | tee "dist/$DMG.sha256"
+          echo "dmg_name=$DMG" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pearcleaner-Reset-App-State-DMG
+          path: |
+            dist/*.dmg
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish experimental prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: reset-state-preview-\${{ github.run_number }}
+          target_commitish: \${{ github.sha }}
+          name: "Pearcleaner Reset App State — Experimental \${{ github.run_number }}"
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          body: |
+            **Experimental, unnotarized build of the feat/reset-app-state branch.**
+
+            This DMG includes the Reset App State context-menu action and bundle-ID-named sandbox-container detection.
+
+            - Built by GitHub Actions from commit \${{ github.sha }}.
+            - Ad-hoc signed, not Developer ID signed or notarized.
+            - macOS may warn or block opening it. Do not bypass Gatekeeper unless you understand the risks.
+            - Not a stable or official Pearcleaner release. Use a test account and back up data before testing reset operations.
+            - SHA-256 checksum is attached alongside the DMG.
+          files: |
+            dist/*.dmg
+            dist/*.sha256
