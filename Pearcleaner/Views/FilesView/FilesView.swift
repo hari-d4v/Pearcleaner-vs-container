@@ -217,27 +217,80 @@ struct FilesView: View {
             style: .warning,
             onOk: {
                 Task {
-                    GlobalConsoleManager.shared.appendOutput("Starting deletion for \(appState.appInfo.appName)...\n", source: CurrentPage.applications.title)
+                    let appInfoForDeletion = appState.appInfo
+                    GlobalConsoleManager.shared.appendOutput("Starting deletion for \(appInfoForDeletion.appName)...\n", source: CurrentPage.applications.title)
                     let selectedItemsArray = Array(appState.selectedItems)
+                    var deletionTargets = selectedItemsArray
                     var appWasRemoved = false
+
+                    // Decide whether the user selected the app bundle itself (or its wrapper).
+                    // Preference/container cleanup must not run for a partial leftover deletion.
+                    let standardizedAppPath = appInfoForDeletion.path.standardizedFileURL
+                    let appBundleSelected = selectedItemsArray.contains {
+                        $0.standardizedFileURL == standardizedAppPath
+                    }
+                    let wrappedContainerPath: URL = appInfoForDeletion.path
+                        .deletingLastPathComponent()
+                        .deletingLastPathComponent()
+                        .standardizedFileURL
+                    let wrappedContainerSelected = appInfoForDeletion.wrapped && selectedItemsArray.contains {
+                        $0.standardizedFileURL == wrappedContainerPath
+                    }
+                    let appIsInTrash = appInfoForDeletion.path.path.contains(".Trash")
+                    let fullUninstallRequested = appIsInTrash ||
+                        (!appInfoForDeletion.wrapped && appBundleSelected) ||
+                        (appInfoForDeletion.wrapped && (appBundleSelected || wrappedContainerSelected))
+
+                    if fullUninstallRequested {
+                        // Add the exact bundle-ID-based and metadata-verified user sandbox containers
+                        // to this same Delete operation, even if the heuristic search did not list them.
+                        let existingTargets = Set(selectedItemsArray.map { $0.standardizedFileURL.path })
+                        let selectedParentPaths = selectedItemsArray.map { $0.standardizedFileURL.path }
+                        let containerTargets = appContainerCleanupTargets(
+                            bundleIdentifier: appInfoForDeletion.bundleIdentifier
+                        ).filter { target in
+                            !existingTargets.contains(target.standardizedFileURL.path) &&
+                            !selectedParentPaths.contains(where: { target.path.hasPrefix($0 + "/") })
+                        }
+                        deletionTargets.append(contentsOf: containerTargets)
+
+                        if !containerTargets.isEmpty {
+                            GlobalConsoleManager.shared.appendOutput(
+                                "Added \(containerTargets.count) app sandbox container(s) to the uninstall cleanup for \(appInfoForDeletion.appName).\n",
+                                source: CurrentPage.applications.title
+                            )
+                        } else {
+                            GlobalConsoleManager.shared.appendOutput(
+                                "No additional bundle-specific sandbox containers found for \(appInfoForDeletion.appName).\n",
+                                source: CurrentPage.applications.title
+                            )
+                        }
+                    }
 
                     // Stop Sentinel FileWatcher momentarily to ignore .app bundle being sent to Trash
                     sendStopNotificationFW()
 
                     // Kill the app before proceeding
-                    await killApp(appId: appState.appInfo.bundleIdentifier)
+                    await killApp(appId: appInfoForDeletion.bundleIdentifier)
 
-                    // Trash the files
-                    let _ = moveFilesToTrash(appState: appState, at: selectedItemsArray)
+                    // Trash selected leftovers and any exact app sandbox containers discovered above.
+                    let deletionSucceeded = moveFilesToTrash(appState: appState, at: deletionTargets)
+
+                    // On a full uninstall, run the same preferences-reset commands that fixed
+                    // Mouse Glide: defaults delete <bundleID>, then refresh cfprefsd.
+                    if fullUninstallRequested && (deletionSucceeded || appIsInTrash) {
+                        _ = resetAppPreferencesDomain(bundleIdentifier: appInfoForDeletion.bundleIdentifier)
+                    }
 
                     // Always cleanup UI, regardless of whether files physically existed
                     updateOnMain {
-                        // Remove selected items from app's file list
+                        let deletedPaths = Set(deletionTargets.map { $0.standardizedFileURL.path })
+                        // Remove selected items and supplemental container targets from the app's file list.
                         appState.appInfo.fileSize = appState.appInfo.fileSize.filter {
-                            !selectedItemsArray.contains($0.key)
+                            !deletedPaths.contains($0.key.standardizedFileURL.path)
                         }
                         appState.appInfo.fileIcon = appState.appInfo.fileIcon.filter {
-                            !selectedItemsArray.contains($0.key)
+                            !deletedPaths.contains($0.key.standardizedFileURL.path)
                         }
                         appState.selectedItems.removeAll()
                         updateSortedFiles()
