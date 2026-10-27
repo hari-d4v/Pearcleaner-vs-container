@@ -21,7 +21,7 @@ concurrency:
 jobs:
   build-and-release:
     name: Build app and publish experimental DMG
-    runs-on: macos-15
+    runs-on: xcode-27
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -45,6 +45,8 @@ jobs:
             -configuration Release \
             -destination 'platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/PearcleanerDerivedData" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_REQUIRED=YES \
             CODE_SIGNING_ALLOWED=YES \
