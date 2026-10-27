@@ -165,7 +165,7 @@ class AppPathFinder {
             if FileManager.default.fileExists(atPath: conventionalContainer.path) {
                 containers.append(conventionalContainer)
                 Task { @MainActor in
-                    GlobalConsoleManager.shared.appendOutput("Found bundle-ID-named app container: \\(conventionalContainer.lastPathComponent)\\n", source: CurrentPage.applications.title)
+                    GlobalConsoleManager.shared.appendOutput("Found bundle-ID-named app container: \(conventionalContainer.lastPathComponent)\n", source: CurrentPage.applications.title)
                 }
             }
 
