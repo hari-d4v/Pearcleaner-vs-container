@@ -31,27 +31,12 @@ jobs:
 
       - name: Resolve Swift packages
         run: |
-          xcodebuild \\
-            -resolvePackageDependencies \\
-            -project Pearcleaner.xcodeproj \\
-            -scheme "Pearcleaner Release"
+          xcodebuild  -resolvePackageDependencies  -project Pearcleaner.xcodeproj  -scheme "Pearcleaner Release"
 
       - name: Build Pearcleaner
         run: |
           set -o pipefail
-          xcodebuild \\
-            -project Pearcleaner.xcodeproj \\
-            -scheme "Pearcleaner Release" \\
-            -configuration Release \\
-            -destination 'platform=macOS' \\
-            -derivedDataPath "$RUNNER_TEMP/PearcleanerDerivedData" \\
-            ARCHS=arm64 \\
-            ONLY_ACTIVE_ARCH=YES \\
-            CODE_SIGN_IDENTITY=- \\
-            CODE_SIGNING_REQUIRED=YES \\
-            CODE_SIGNING_ALLOWED=YES \\
-            DEVELOPMENT_TEAM= \\
-            build | tee "$RUNNER_TEMP/xcodebuild.log"
+          xcodebuild  -project Pearcleaner.xcodeproj  -scheme "Pearcleaner Release"  -configuration Release  -destination 'platform=macOS'  -derivedDataPath "$RUNNER_TEMP/PearcleanerDerivedData"  ARCHS=arm64  ONLY_ACTIVE_ARCH=YES  CODE_SIGN_IDENTITY=-  CODE_SIGNING_REQUIRED=YES  CODE_SIGNING_ALLOWED=YES  DEVELOPMENT_TEAM=  build | tee "$RUNNER_TEMP/xcodebuild.log"
 
       - name: Align Sparkle signature with experimental app signature
         run: |
@@ -88,17 +73,10 @@ jobs:
           ditto "$APP" "dist/mount/Pearcleaner.app"
           ln -s /Applications "dist/mount/Applications"
 
-          VERSION=$(/usr/libexec/PlistBuddy \\
-            -c 'Print :CFBundleShortVersionString' \\
-            "$APP/Contents/Info.plist" 2>/dev/null || echo "5.4.3")
+          VERSION=$(/usr/libexec/PlistBuddy  -c 'Print :CFBundleShortVersionString'  "$APP/Contents/Info.plist" 2>/dev/null || echo "5.4.3")
           DMG="Pearcleaner-Reset-App-State-${VERSION}-experimental.dmg"
 
-          hdiutil create \\
-            -volname "Pearcleaner Reset App State" \\
-            -srcfolder dist/mount \\
-            -ov \\
-            -format UDZO \\
-            "dist/$DMG"
+          hdiutil create  -volname "Pearcleaner Reset App State"  -srcfolder dist/mount  -ov  -format UDZO  "dist/$DMG"
 
           shasum -a 256 "dist/$DMG" | tee "dist/$DMG.sha256"
           echo "dmg_name=$DMG" >> "$GITHUB_OUTPUT"
