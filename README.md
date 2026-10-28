@@ -40,7 +40,7 @@ More details [HERE](https://www.reddit.com/r/macapps/comments/1ucstzy/psa_pearcl
    <br />
    <strong>Version: </strong>5.4.3
    <br />
-   <a href="https://github.com/alienator88/Pearcleaner/releases"><strong>Download</strong></a>
+   <a href="https://github.com/hari-d4v/Pearcleaner-vs-container/releases/download/reset-state-preview-16/Pearcleaner-Reset-App-State-5.4.3-experimental.dmg"><strong>Download this fork</strong></a>
     · 
    <a href="https://github.com/alienator88/Pearcleaner/commits">Commits</a>
   </p>
