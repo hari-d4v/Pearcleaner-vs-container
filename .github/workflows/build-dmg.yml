@@ -1,0 +1,118 @@
+name: Build experimental Pearcleaner DMG
+
+on:
+  push:
+    branches:
+      - feat/reset-app-state
+    paths:
+      - ".github/workflows/build-dmg.yml"
+      - "Pearcleaner/**"
+      - "Pearcleaner.xcodeproj/**"
+      - "FinderOpen/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: experimental-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    name: Build app and publish experimental DMG
+    runs-on: xcode-27
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild  -resolvePackageDependencies  -project Pearcleaner.xcodeproj  -scheme "Pearcleaner Release"
+
+      - name: Build Pearcleaner
+        run: |
+          set -o pipefail
+          xcodebuild  -project Pearcleaner.xcodeproj  -scheme "Pearcleaner Release"  -configuration Release  -destination 'platform=macOS'  -derivedDataPath "$RUNNER_TEMP/PearcleanerDerivedData"  ARCHS=arm64  ONLY_ACTIVE_ARCH=YES  CODE_SIGN_IDENTITY=-  CODE_SIGNING_REQUIRED=YES  CODE_SIGNING_ALLOWED=YES  DEVELOPMENT_TEAM=  build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Allow the experimental ad-hoc app to load Sparkle
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/PearcleanerDerivedData/Build/Products/Release/Pearcleaner.app"
+          ENTITLEMENTS="$RUNNER_TEMP/Pearcleaner-experimental.entitlements.plist"
+          test -d "$APP"
+
+          # The CI build has no Developer ID certificate. The experimental app
+          # is ad-hoc signed, so library validation rejects Sparkle's different
+          # Team ID on launch. Apply this exception to this build only and keep
+          # the app-group entitlement already embedded by Xcode.
+          codesign -d --entitlements :- "$APP" > "$ENTITLEMENTS" 2>/dev/null
+          plutil -lint "$ENTITLEMENTS"
+          /usr/libexec/PlistBuddy -c "Set :com.apple.security.cs.disable-library-validation true" "$ENTITLEMENTS" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$ENTITLEMENTS"
+
+          # Keep hardened runtime enabled. Do not deep-sign Sparkle's XPC
+          # tools, as those may require distinct entitlements.
+          codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # Fail unless the final signature contains both required entitlements.
+          SIGNED_ENTITLEMENTS="$RUNNER_TEMP/Pearcleaner-signed.entitlements.plist"
+          codesign -d --entitlements :- "$APP" > "$SIGNED_ENTITLEMENTS" 2>/dev/null
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.cs.disable-library-validation' "$SIGNED_ENTITLEMENTS")" = "true"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$SIGNED_ENTITLEMENTS")" = "group.com.alienator88.Pearcleaner"
+
+      - name: Prepare DMG
+        id: package
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/PearcleanerDerivedData/Build/Products/Release/Pearcleaner.app"
+          test -d "$APP"
+
+          mkdir -p dist/mount
+          ditto "$APP" "dist/mount/Pearcleaner.app"
+          ln -s /Applications "dist/mount/Applications"
+
+          VERSION=$(/usr/libexec/PlistBuddy  -c 'Print :CFBundleShortVersionString'  "$APP/Contents/Info.plist" 2>/dev/null || echo "5.4.3")
+          DMG="Pearcleaner-Reset-App-State-${VERSION}-experimental.dmg"
+
+          hdiutil create  -volname "Pearcleaner Reset App State"  -srcfolder dist/mount  -ov  -format UDZO  "dist/$DMG"
+
+          shasum -a 256 "dist/$DMG" | tee "dist/$DMG.sha256"
+          echo "dmg_name=$DMG" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pearcleaner-Reset-App-State-DMG
+          path: |
+            dist/*.dmg
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish experimental prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: reset-state-preview-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: "${{ contains(github.event.head_commit.message, '[release latest]') && 'Pearcleaner Reset App State — Latest Fork Build' || format('Pearcleaner Reset App State — Experimental {0}', github.run_number) }}"
+          prerelease: ${{ !contains(github.event.head_commit.message, '[release latest]') }}
+          make_latest: ${{ contains(github.event.head_commit.message, '[release latest]') }}
+          fail_on_unmatched_files: true
+          body: |
+            **Experimental, unnotarized build of the feat/reset-app-state branch.**
+
+            This DMG includes the Delete-workflow container cleanup fix and bundle-ID-named container detection.
+
+            - Built by GitHub Actions from commit ${{ github.sha }}.
+            - Ad-hoc signed, not Developer ID signed or notarized; this is not suitable as a production distribution build.
+            - This CI-only ad-hoc build adds com.apple.security.cs.disable-library-validation because Pearcleaner has no Developer ID signature matching Sparkle's Team ID. Hardened runtime remains enabled, but library validation is relaxed for this experimental build.
+            - macOS may still warn or block opening it because it is not notarized.
+            - Not a stable or official Pearcleaner release. Use a test account and back up data before testing reset operations.
+            - SHA-256 checksum is attached alongside the DMG.
+          files: |
+            dist/*.dmg
+            dist/*.sha256

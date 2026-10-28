@@ -142,9 +142,12 @@ class AppPathFinder {
     // Get all container URLs
     private func getAllContainers(bundleURL: URL) -> [URL] {
         var containers: [URL] = []
-        let bundleIdentifier = Bundle(url: bundleURL)?.bundleIdentifier
+        // Bundle(url:) can return nil for some App Store or recently moved app bundles;
+        // AppInfo already contains the metadata-derived bundle identifier in that case.
+        let containerBundleIdentifier = Bundle(url: bundleURL)?.bundleIdentifier
+            ?? self.appInfo.bundleIdentifier
 
-        guard let containerBundleIdentifier = bundleIdentifier else {
+        guard !containerBundleIdentifier.isEmpty else {
             return containers
         }
 
@@ -158,6 +161,17 @@ class AppPathFinder {
         }
 
         if let containersPath = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?.appendingPathComponent("Containers") {
+            // Most sandbox containers use a UUID directory and store the app's bundle ID
+            // in containermanagerd metadata. Also check the conventional bundle-ID-named
+            // directory explicitly; some app/container layouts use this path directly.
+            let conventionalContainer = containersPath.appendingPathComponent(containerBundleIdentifier, isDirectory: true)
+            if FileManager.default.fileExists(atPath: conventionalContainer.path) {
+                containers.append(conventionalContainer)
+                Task { @MainActor in
+                    GlobalConsoleManager.shared.appendOutput("Found bundle-ID-named app container: \(conventionalContainer.lastPathComponent)\n", source: CurrentPage.applications.title)
+                }
+            }
+
             do {
                 let containerDirectories = try FileManager.default.contentsOfDirectory(at: containersPath, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
                 for directory in containerDirectories {
