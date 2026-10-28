@@ -1,5 +1,16 @@
 # Pearcleaner
 
+## Download this fork
+
+**[Download the latest Pearcleaner fork build for Apple Silicon](https://github.com/hari-d4v/Pearcleaner-vs-container/releases/download/reset-state-preview-17/Pearcleaner-Reset-App-State-5.4.3-experimental.dmg)**
+
+This modified fork includes the fix that runs sandbox-container and preferences cleanup during a full app uninstall.
+
+> **Security and provenance:** This is a community-maintained fork build, not an official upstream Pearcleaner release. It is ad-hoc signed and not notarized. To load Sparkle without a matching Developer ID signing identity, this experimental build relaxes macOS library validation with the `com.apple.security.cs.disable-library-validation` entitlement. That reduces a security protection. Download and run it only if you accept that trade-off; keep SIP enabled.
+
+[Release notes, checksum, and build details](https://github.com/hari-d4v/Pearcleaner-vs-container/releases/tag/reset-state-preview-17)
+
+
 ### Website
 The only legitimate website owned by me is https://itsalin.com. Anything else offering Pearcleaner downloads is either a scam or not affiliated with me.
 More details [HERE](https://www.reddit.com/r/macapps/comments/1ucstzy/psa_pearcleanercom_is_a_fake_site_pushing_macos/).
