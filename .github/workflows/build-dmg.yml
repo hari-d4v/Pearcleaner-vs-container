@@ -98,9 +98,9 @@ jobs:
         with:
           tag_name: reset-state-preview-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: "Pearcleaner Reset App State — Experimental ${{ github.run_number }}"
-          prerelease: true
-          make_latest: false
+          name: "${{ contains(github.event.head_commit.message, '[release latest]') && 'Pearcleaner Reset App State — Latest Fork Build' || format('Pearcleaner Reset App State — Experimental {0}', github.run_number) }}"
+          prerelease: ${{ !contains(github.event.head_commit.message, '[release latest]') }}
+          make_latest: ${{ contains(github.event.head_commit.message, '[release latest]') }}
           fail_on_unmatched_files: true
           body: |
             **Experimental, unnotarized build of the feat/reset-app-state branch.**
